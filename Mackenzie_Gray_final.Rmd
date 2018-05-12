@@ -1,0 +1,191 @@
+---
+title: "Hepatitis A Incidence and Outbreaks in the U.S."
+author: "Mackenzie Gray"
+date: "May 11, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(tidyverse))
+library(dslabs)
+```
+
+Hepatitis A is a viral infection most commonly aquired through consumption of infected food or water, contact with infected people, and improperly cooked shellfish. The disease can range from asymptomatic to life-threatening illness, and is especially dangerous to young children and the elderly. A vaccine against the disease was brought to market in the United States in 1996, and made mandatory in many states within the following decade.
+
+With the `us_contagious_diseases` dataset from `dslabs`, we can compare the incidence of Hepatitis A in the U.S. before and after the availability of the vaccine, and examine the by-state differences in Hepatitis A infection rates and outbreaks.
+
+## Pre- and post-vaccine
+
+
+```{r}
+dis <- us_contagious_diseases
+
+dis %>% 
+  filter(disease=="Hepatitis A") %>% 
+  group_by(year) %>% 
+  summarise(count=100000*sum(count)/sum(population)) %>% 
+  ggplot(aes(x=year, y=count)) +
+    geom_line() +
+    geom_vline(xintercept=1996,color="#888888") +
+    geom_label(aes(1991, 20, label="Vaccine recommended\n for schoolchildren"),
+               color="#888888") +
+    ylab("Cases per 100k") + 
+    xlab("Year") + 
+    ggtitle("Hepatitis A cases/year in the U.S. (per 100k people)")
+```
+Because the data starts in 1966, it is impossible to tell if the level seen from around 1980 to 1996 is the "true" baseline level before 1966, and the decade from 1966 to 1976 had extremely high rates of Hepatitis A, or if the incidence rate fell in the mid-1970's for some unexplained reason---improved access to sanitation, for instance. Regardless, the drop in rates after 1996 is very evident, and while the data do not provide the ability to conclusively prove that the dropoff is due to the introduction of the vaccine, they strongly suggest that as the cause.
+
+A different way of looking at the same data is to compare the mean number of cases per year per 100k people before the vaccine was introduced and after. The above graph indicates that this should be a drastic difference.
+
+```{r}
+dis %>% 
+  filter(disease =="Hepatitis A") %>% 
+  mutate(pos=factor(case_when(year<1996 ~ "Before 1996",
+                    year>1996 ~ "After 1996"),
+                    levels=c("Before 1996","After 1996"))) %>%
+  group_by(pos) %>% 
+  summarise(count=100000*mean(count/population)) %>% 
+  drop_na(pos) %>%
+  ggplot(aes(x=pos, y=count)) + 
+    geom_bar(stat="identity") +
+    ylab("Mean number of cases") + 
+    xlab("Timeframe") + 
+    ggtitle("Mean number of Hepatitis A cases/year in the U.S. (per 100,000 people)")
+```
+
+This agrees with the previous graph. The rate of Hepatitis A per year in the U.S. per 100,000 people decreased to about 15% of the previous levels following the introduction of the Hepatitis A vaccine.
+
+## Outbreaks
+
+We can plot a time series for each state as a separate line together with the mean for all states. We can also shift all of the per 100k values to lie around the same area by subtracting the value for each state each year from the mean value for each state. This way, we can see where states have an unusually high or low number of cases compared to their averages.
+
+```{r}
+mean_pct <- dis %>% 
+  filter(disease=="Hepatitis A") %>% 
+  mutate(per100k=100000*count/population) %>% 
+  group_by(state) %>% 
+  mutate(pct=(per100k-mean(per100k))) %>% 
+  group_by(year) %>% 
+  summarise(pct=mean(pct))
+
+dis %>% 
+  filter(disease=="Hepatitis A") %>% 
+  mutate(norm_count=100000*count/population) %>% 
+  group_by(state) %>% 
+  mutate(change=(norm_count-mean(norm_count))) %>% 
+  ggplot(aes(x=year, y=change)) +
+    geom_line(aes(group=state), alpha=0.2) + 
+    geom_line(data=mean_pct, aes(x=year, y=pct), color="#cc4444", size=2) +
+    xlab("Year") +
+    ylab("Difference from state mean") +
+    ggtitle("Hepatitis A infections in the U.S. per 100k people")
+```
+
+This graph is dominated by one state in particular (Alaska) which seems to have had a massive increase in Hepatitis A infections per 100k people from 1974 to 1977 by over 250 people per 100k over its mean. We can remove Alaska from the visualization to get a better look at the other states.
+
+```{r}
+mean_pct <- dis %>% 
+  filter(disease=="Hepatitis A"&state!="Alaska") %>% 
+  mutate(per100k=100000*count/population) %>% 
+  group_by(state) %>% 
+  mutate(pct=(per100k-mean(per100k))) %>% 
+  group_by(year) %>% 
+  summarise(pct=mean(pct))
+
+dis %>% 
+  filter(disease=="Hepatitis A"&state!="Alaska") %>% 
+  mutate(norm_count=100000*count/population) %>% 
+  group_by(state) %>% 
+  mutate(change=(norm_count-mean(norm_count))) %>% 
+  ggplot(aes(x=year, y=change)) +
+    geom_line(aes(group=state), alpha=0.2) + 
+    geom_line(data=mean_pct, aes(x=year, y=pct), color="#cc4444", size=2) + 
+    xlab("Year") + 
+    ylab("Difference from state mean") + 
+    ggtitle("Hepatitis A infections in the U.S. (excluding Alaska) per 100k people")
+```
+
+The time series for the rest of the states are much more similar in shape to each other. We can see several states with outbreaks around 1970, a large outbreak in one particular state (South Dakota) in 1991, and a number of states with outbreaks in 1996.
+
+### Can we explain these outbreaks?
+
+Since Hepatitis A is often transmitted through bad shellfish, is there any relationship between states on the coast and landlocked ones? Perhaps coastal states eat more shellfish and so have higher rates than would otherwise be expected? Or perhaps instead landlocked states have longer transit times on the shellfish they eat and so are more likely to eat shellfish which has gone bad?
+
+We can define a list of coastal states from Wikipedia.
+
+```{r}
+coastal_states <- c("Maine","New Hampshire","Massachusetts",
+                    "Rhode Island","Connecticut","New York",
+                    "Delaware","New Jersey","Maryland",
+                    "Virginia","North Carolina","South Carolina",
+                    "Georgia","Oregon","Washington",
+                    "Alaska","Hawaii","California","Florida",
+                    "Alabama","Mississippi","Louisiana","Texas","Pennsylvania")
+```
+
+We can then visualize how the two groups differ in Hepatitis A incidence by creating a line graph of the mean incidence for the two groups.
+
+```{r}
+dis %>% 
+  filter(disease=="Hepatitis A") %>% 
+  mutate(Coastal=(state %in% coastal_states)) %>% 
+  group_by(year, Coastal) %>% 
+  summarise(count=100000*mean(count/population)) %>% 
+  ggplot(aes(x=year, y=count, color=Coastal)) +
+    geom_line(size=1) + 
+    xlab("Year") +
+    ylab("Number of cases") + 
+    ggtitle("Hepatitis A infections in the U.S. per 100k people")
+```
+
+It seems as though the two groups are very similar except perhaps from 1990 to 2000 or so, where non-coastal states saw more cases than coastal states, and the outbreak around 1970, where coastal states were hit slightly harder than non-coastal states. Without actual statistical tests however, we can not say much more than this about the difference between the two groups, although it does not seem likely that such a test would see a significant difference overall.
+
+Instead, can we explain these outbreaks some other way? We can easily see which states have the highest increase in Hepatitis A infections over their means.
+
+```{r}
+dis %>% 
+  filter(disease=="Hepatitis A"&state!="Alaska") %>% 
+  mutate(norm_count=100000*count/population) %>% 
+  group_by(state) %>% 
+  mutate(change=(norm_count-mean(norm_count))) %>%
+  summarise(change=max(change)) %>% 
+  arrange(-change) %>% 
+  top_n(10) %>% 
+  knitr::kable()
+```
+
+No immediate connection jumps out from these states. Some are small New England coastal states, some large, rural, sparsely populated interior states.
+
+If we plot the mean number of cases in a state versus the mean population of that state, we observe a positive, non-linear relationship between the two values.
+
+
+```{r}
+dis %>% 
+  filter(disease=="Hepatitis A") %>% 
+  ggplot(aes(x=population, y=count)) +
+    geom_point() +
+    xlab("Population") +
+    ylab("Number of cases") + 
+    ggtitle("Number of Hepatitis A cases versus state population")
+```
+
+If we take the natural log of the two values and plot that, we can see that their logs seem to have a more linear, although still slightly heteroscedastic, relationship.
+
+```{r}
+dis %>% 
+  filter(disease=="Hepatitis A") %>% 
+  group_by(state) %>% 
+  mutate(count=log(count), population=log(population)) %>% 
+  ggplot(aes(x=population, y=count)) +
+    geom_point() +
+    xlab("log(Population)") +
+    ylab("log(Number of cases)") + 
+    ggtitle("Log of the number of Hepatitis A cases versus\n log of the state population")
+```
+
+This relationship suggests that a one unit increase in the natural log of the population of a state gives a linear increase in the log of the number of Hepatitis A cases in that state, although again an actual statistical analysis would be neccessary to draw any useful conclusions about this relationship.
+
+Unfortunately, the data does not allow us to draw much more in the way of conclusions about the causes of these outbreaks. The 1990 outbreak may have been due to [restaurant sanitation failures](https://www.washingtonpost.com/archive/politics/1990/04/13/restaurant-food-suspected-in-upswing-of-hepatitis-a/1a5b3ecc-b7d1-4d2d-b8e7-96d769417e64/?utm_term=.1849628c3b01) in a number of states, while the 1976 Alaska outbreak and 1991 South Dakota outbreak may be traceable to [sanitation](http://articles.chicagotribune.com/1992-08-06/news/9203100664_1_hepatitis-indian-health-service-vaccine) and [water access](http://epibulletins.dhss.alaska.gov/Document/Display?DocumentId=1431) issues in remote, primarily American Indian, towns.
+
+Additonal things to investigate would include regional breakdowns of number of cases and finding data that begins before 1966 to determine how unusal the 1970 outbreak was.
